@@ -129,6 +129,8 @@ def check_files(cfg: dict, root: pathlib.Path) -> None:
     env_file = get(cfg, "backend.auth.env_file") or get(cfg, "task_source.auth.env_file")
     if env_file:
         wanted.append(env_file)
+    if (root / ".qa" / qa_config.LOCAL_NAME).is_file():
+        wanted.append(f".qa/{qa_config.LOCAL_NAME}")
     for entry in wanted:
         ignored = is_ignored(root, entry)
         add(f"git.ignore.{entry}", "PASS" if ignored else "WARN", "" if ignored else f"'{entry}' is not git-ignored", False,
@@ -181,8 +183,9 @@ def check_tools(cfg: dict) -> None:
         port = int(get(cfg, "frontend.debug_port") or 9222)
         with socket.socket() as s:
             busy = s.connect_ex(("127.0.0.1", port)) == 0
-        add("tool.debug-port", "WARN" if busy else "PASS", f"port {port} already in use" if busy else "", False,
-            {"kind": "user", "steps": [f"close the process on port {port} or set frontend.debug_port to a free port"]} if busy else None)
+        # browser.sh moves to the next free port and records it in <scratch>/cdp.port, so a busy port
+        # (another QA run, another worktree) is information, not a problem.
+        add("tool.debug-port", "PASS", f"port {port} in use: the run will take the next free port" if busy else "")
     kind = get(cfg, "task_source.type")
     cli = {"azure-devops": "az", "github": "gh"}.get(kind)
     if cli and get(cfg, "task_source.auth.method") == "cli":
@@ -264,7 +267,8 @@ def check_live(cfg: dict, root: pathlib.Path) -> None:
     try:
         time.sleep(10)
         import os
-        env = {**os.environ, "APP_HOST": url.split("//")[-1].split("/")[0], "CDP_PORT": port, "NODE_PATH": subprocess.run(["npm", "root", "-g"], capture_output=True, text=True).stdout.strip()}
+        env = {**os.environ, "APP_HOST": url.split("//")[-1].split("/")[0], "QA_SCRATCH": str(scratch), "NODE_PATH": subprocess.run(["npm", "root", "-g"], capture_output=True, text=True).stdout.strip()}
+        env.pop("CDP_PORT", None)  # attach to the port browser.sh recorded for this scratch dir
         probe = subprocess.run(["node", str(QA_SCRIPTS / "frontend" / "probe.js")], capture_output=True, text=True, env=env, timeout=60)
         try:
             data = json.loads(probe.stdout.strip().splitlines()[-1])
