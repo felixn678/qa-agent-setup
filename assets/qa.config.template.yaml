@@ -1,0 +1,120 @@
+# .qa/qa.config.yaml - QA agent configuration for THIS project.
+# Written by the qa-agent-setup skill, read by the generated QA agent skill and its scripts.
+# Rules: no secret values here (only the NAME of the env var that holds them); an empty string or
+# "TODO" means "not configured": the QA agent reports it and asks, it never guesses a value.
+version: 1
+
+project:
+  name: "<project name>"
+  agent_name: qa-agent-<project>   # name of the generated QA skill (folder + slash command), asked in setup
+  kinds: [frontend]            # any of: frontend, backend, mobile, data. Decides which playbooks apply.
+  context_file: .qa/project-context.md   # verified platform facts (known data, no per-user access control, ...)
+  how_to_test: .qa/how-to-test.md   # the user's own words on how to test this project (flows, accounts, data, traps); read every run
+  scratch_dir: .qa/runs        # git-ignored; screenshots, saved responses, browser profile copy
+  task_style: []               # what tasks look like here: acceptance-criteria | bug-reports | image-only | one-liners (helps scenario design)
+
+# Which AI coding agent drives QA. Affects the entry-point files the setup writes and how questions are asked.
+agent:
+  runtime: claude              # claude | codex | gemini | cursor | other
+  ask_user_tool: AskUserQuestion   # tool/mechanism for questions; "plain-text" when the agent has none
+
+# ---------------------------------------------------------------- where tasks come from
+task_source:
+  type: manual                 # azure-devops | jira | clickup | github | linear | manual
+  # azure-devops:  org_url: "https://dev.azure.com/<org>"   project: "<project>"   acceptance_field: Microsoft.VSTS.Common.AcceptanceCriteria
+  # jira:          base_url: "https://<site>.atlassian.net"  acceptance_field: customfield_10042 (optional)
+  # clickup:       team_id: "<id>"  custom_task_ids: false
+  # github:        repo: "<owner>/<repo>"
+  # linear:        {}
+  # manual:        the user pastes a description and/or image paths; images: [ ]  (optional defaults)
+  auth:
+    method: cli                # cli (az/gh already logged in) | env-token | none
+    env_var: ""                # env-token only: name of the variable that holds the API token
+    env_file: ""               # optional git-ignored file that defines it, relative to the project root
+    # jira also reads email from the variable named email_env_var (default JIRA_EMAIL)
+  id_pattern: ""               # regex that recognizes a task id/link in the user's request, e.g. "\\d{4,6}" or "[A-Z]+-\\d+"
+  read_only: true              # QA never updates, comments on or moves the task
+
+# How a task is classified into a validation workstream. First match wins; no match -> ask the user.
+workstreams:
+  frontend: { labels: ["FRONTEND"], title_prefixes: ["[FE]"] }
+  backend:  { labels: ["BACKEND"],  title_prefixes: ["[BE]"] }
+  unsupported: { labels: [], title_prefixes: [] }      # tasks the agent reports and stops on (e.g. data engineering)
+  module_from: ""              # task field used to pick a backend service/module, e.g. "area" (matched against backend.services keys); "" = single service
+
+# ---------------------------------------------------------------- environments
+environments:
+  default: local               # used without asking when the request names none
+  list:
+    local:
+      frontend_url: "http://localhost:3000"
+      backend_env: dev         # which backend environment a locally running frontend talks to
+      start: "npm start"       # the agent never starts the app; it only tells the user this command
+      mutation: allow          # allow | forbid | ask   (may QA create/update/delete data here?)
+    dev:
+      frontend_url: ""
+      mutation: allow
+    stg:
+      frontend_url: ""
+      mutation: ask
+    prd:
+      frontend_url: ""
+      mutation: forbid         # prd: read-only unless the user confirms a named scenario separately
+
+network:
+  vpn_required: false
+  vpn_check_url: ""            # a URL that only answers on the VPN; setup verification pings it
+  notes: ""
+
+# ---------------------------------------------------------------- backend validation (curl / api.py)
+backend:
+  services:                    # one entry per backend module/service; delete the block for frontend-only projects
+    api:
+      base_url:  { dev: "", stg: "", prd: "" }       # nested {v1: {dev: ...}} when concurrent API versions exist
+      swagger_url: { dev: "", stg: "", prd: "" }     # OpenAPI/Swagger page or JSON per environment
+      versions: []             # e.g. [v1, v2]; resolution rule: the version whose Swagger has the endpoint
+  auth:
+    type: header               # header = token required | optional = token welcome, screen-only testing works without it | none = no auth
+    header_name: Authorization
+    header_format: "Bearer {token}"
+    env_var: API_TOKEN         # the NAME of the variable; the value never goes in this file
+    env_file: ".env.local"     # git-ignored; the setup checks it is not tracked
+  test_data:
+    sandbox: ""                # a safe entity for writes, e.g. a sandbox tenant/vessel/project id
+    marker: "QA <task id>"     # prefix for records QA creates so they are recognizable and cleanable
+
+# ---------------------------------------------------------------- frontend validation (Playwright over CDP)
+frontend:
+  browser: chrome              # edge | chrome (a Chromium browser the user already has)
+  debug_port: 9222
+  login:
+    mode: profile-copy         # profile-copy (temporary copy of the user's logged-in profile) | manual (fresh browser, user logs in) | storage-state
+    profile: Default           # profile-copy only: directory name from `browser.sh profiles <browser>`
+    sso: ""                    # free text: "Microsoft SSO, MFA", "email+password", ...
+  post_login_steps: []         # e.g. [{ click_button: "I Agree" }] for terms notices that return after reload
+  app_notes: ""                # known app-wide traps: blocking dialogs for toasts, virtualized tables, ...
+  feature_flags:
+    provider: ""               # posthog | launchdarkly | growthbook | env | none
+    how_to_toggle: ""          # what QA may do when a flag the feature needs is off (mock locally only)
+
+# ---------------------------------------------------------------- knowledge (docs + codebase digest)
+knowledge:
+  dir: .qa/knowledge           # chunks.jsonl (git-ignore), index.md, rules.md, glossary.md, codebase-map.md, overview.md
+  docs: []                     # files/folders/globs ingested by kb.py, e.g. [README.md, docs/, specs/product-spec.md]
+  code_map: true               # build codebase-map.md (routes, API paths, flags, test ids)
+  code_use: locate             # locate = code map only finds screens/endpoints/terms; oracle = code may define expected behavior
+                               # (default keeps QA black-box: docs and the live app decide pass/fail)
+
+# ---------------------------------------------------------------- reporting
+report:
+  format: default              # default = the verdict-block format in <agent skill>/references/report-format.md | <path to a custom template>
+  ascii_only: true
+  style: concise               # short messages and reports (default)
+  language: en
+  screenshots_dir: ""          # empty -> <scratch_dir>/shots
+
+# Project-specific helpers the generic skill does not know (selectors drivers, data seeders, ...).
+extensions: []                 # e.g. [{ name: column-filter, file: .qa/extensions/column_filter.js, use: "Drives header filter panels" }]
+
+# Free-text rules the QA agent must follow in this project (kept short, one per line).
+rules: []
