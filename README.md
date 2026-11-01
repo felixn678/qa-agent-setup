@@ -2,6 +2,12 @@
 
 You install **one skill**. It builds a QA agent that tests your tasks for you.
 
+Watch video:
+
+<video src="https://github.com/linhnguyendeveloper/qa-agent-setup/raw/main/qa-agent-setup-guide.mp4" controls width="100%"></video>
+
+[Video not showing? Open it here](https://github.com/linhnguyendeveloper/qa-agent-setup/blob/main/qa-agent-setup-guide.mp4)
+
 ```
  YOU                       qa-agent-setup                      YOUR PROJECT
 ┌──────────┐  "set up    ┌───────────────────┐  creates   ┌──────────────────────────┐
